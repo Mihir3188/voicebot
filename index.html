@@ -1,0 +1,371 @@
+<meta name='viewport' content='width=device-width, initial-scale=1'/><meta name="viewport" content="width=device-width, initial-scale=1" />
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Hospital Appointment Voice Bot</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f0f4f8;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .container {
+      text-align: center;
+      background: #fff;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      max-width: 600px;
+      width: 100%;
+    }
+    h1 {
+      color: #2c3e50;
+    }
+    #output {
+      margin: 20px 0;
+      padding: 15px;
+      background: #e8f0fe;
+      border-radius: 5px;
+      min-height: 60px;
+      font-size: 1.2em;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 1em;
+      margin: 5px;
+      background-color: #3498db;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #95a5a6;
+      cursor: not-allowed;
+    }
+    #datetime-picker {
+      display: none;
+      margin-top: 10px;
+      padding: 5px;
+      font-size: 1em;
+    }
+    .details {
+      margin-top: 20px;
+      font-size: 1em;
+      color: #34495e;
+    }
+    #text-input {
+      padding: 5px;
+      font-size: 1em;
+      width: 80%;
+      margin: 10px;
+    }
+    .listening {
+      background-color: #e74c3c;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Hospital Appointment Bot</h1>
+    <div id="output">Click "Start" and say "Hindi" or "English" to begin.</div>
+    <button id="voice-btn">Start Voice Input</button>
+    <input type="text" id="text-input" placeholder="Type your input (if voice is unavailable)" style="display: none; margin: 10px; padding: 5px; width: 80%;" />
+    <button id="submit-text-btn" style="display: none;">Submit Text</button>
+    <button id="reset-btn">Restart</button>
+    <input type="datetime-local" id="datetime-picker" />
+    <div class="details">
+      <p>Ensure your device is not in silent mode for voice output.</p>
+      <div id="appointment-details"></div>
+    </div>
+  </div>
+
+  <script>
+    const departments = [
+      { en: "Cardiology", hi: "कार्डियोलॉजी" },
+      { en: "Neurology", hi: "न्यूरोलॉजी" },
+      { en: "Orthopedics", hi: "ऑर्थोपेडिक्स" }
+    ];
+
+    const doctors = {
+      Cardiology: [
+        { en: "Dr. Anil Sharma", hi: "डॉ. अनिल शर्मा" },
+        { en: "Dr. Vikram Singh", hi: "डॉ. विक्रम सिंह" }
+      ],
+      Neurology: [
+        { en: "Dr. Rajesh Kumar", hi: "डॉ. राजेश कुमार" },
+        { en: "Dr. Sanjay Gupta", hi: "डॉ. संजय गुप्ता" }
+      ],
+      Orthopedics: [
+        { en: "Dr. Amit Patel", hi: "डॉ. अमित पटेल" },
+        { en: "Dr. Deepak Verma", hi: "डॉ. दीपक वर्मा" }
+      ]
+    };
+
+    let currentStep = "language";
+    let language = "";
+    let selectedDepartment = "";
+    let selectedDoctor = "";
+    let patientName = "";
+    let selectedDateTime = "";
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = SpeechRecognition ? new SpeechRecognition() : null;
+    const synth = window.speechSynthesis;
+
+    const outputDiv = document.getElementById("output");
+    const voiceBtn = document.getElementById("voice-btn");
+    const resetBtn = document.getElementById("reset-btn");
+    const datetimePicker = document.getElementById("datetime-picker");
+    const appointmentDetailsDiv = document.getElementById("appointment-details");
+    const textInput = document.getElementById("text-input");
+    const submitTextBtn = document.getElementById("submit-text-btn");
+
+    if (!SpeechRecognition) {
+      textInput.style.display = "block";
+      submitTextBtn.style.display = "block";
+      voiceBtn.style.display = "none";
+      updateOutput("Voice input not supported. Please type your input below.", "en-IN");
+    } else {
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+    }
+
+    function speak(text, lang = "en-IN", callback = null) {
+      synth.cancel(); // Prevent overlapping speech
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = lang;
+      const voices = synth.getVoices();
+      let selectedVoice = voices.find(v => v.lang === lang && v.name.includes("Male"));
+      if (!selectedVoice && lang === "hi-IN") {
+        selectedVoice = voices.find(v => v.lang.includes("hi"));
+      }
+      if (!selectedVoice) {
+        selectedVoice = voices.find(v => v.lang.includes("en")) || voices[0];
+        console.warn(`No ${lang} voice found. Using fallback voice: ${selectedVoice?.name}`);
+      }
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      } else {
+        updateOutput("Text-to-speech is not available on this device.", lang);
+        return;
+      }
+      utterance.onend = () => {
+        if (callback) setTimeout(callback, 800);
+      };
+      synth.speak(utterance);
+    }
+
+    function updateOutput(text, lang = "en-IN", thenListen = false) {
+      outputDiv.textContent = text;
+      speak(text, lang, () => {
+        if (thenListen && recognition) {
+          recognition.start();
+          voiceBtn.textContent = "Listening...";
+          voiceBtn.classList.add("listening");
+          setTimeout(() => {
+            if (recognition) {
+              recognition.abort();
+              voiceBtn.textContent = "Start Voice Input";
+              voiceBtn.classList.remove("listening");
+              updateOutput("Didn't hear anything. Please try again.", lang, true);
+            }
+          }, 8000);
+        }
+      });
+    }
+
+    if (recognition) {
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript.trim().toLowerCase();
+        processInput(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        const error = event.error;
+        let message = "";
+        if (error === "no-speech") {
+          message = "No speech detected. Please try again.";
+        } else if (error === "not-allowed") {
+          message = "Microphone access blocked. Please allow microphone access in your browser settings.";
+        } else if (error === "aborted") {
+          message = "Speech recognition aborted. Please try again.";
+        } else if (error === "network") {
+          message = "Network error. Please check your internet connection.";
+        } else {
+          message = `Speech recognition error: ${error}. Please try again.`;
+        }
+        updateOutput(message, recognition.lang, error === "no-speech" || error === "aborted");
+      };
+
+      recognition.onend = () => {
+        voiceBtn.textContent = "Start Voice Input";
+        voiceBtn.classList.remove("listening");
+      };
+
+      voiceBtn.addEventListener("click", () => {
+        recognition.lang = language === "hi" ? "hi-IN" : "en-IN";
+        recognition.start();
+        voiceBtn.textContent = "Listening...";
+        voiceBtn.classList.add("listening");
+      });
+    }
+
+    resetBtn.addEventListener("click", () => {
+      resetBot();
+    });
+
+    submitTextBtn.addEventListener("click", () => {
+      const input = textInput.value.trim().toLowerCase();
+      if (input) {
+        processInput(input);
+        textInput.value = "";
+      }
+    });
+
+    datetimePicker.addEventListener("change", () => {
+      if (!datetimePicker.value) return;
+      selectedDateTime = new Date(datetimePicker.value);
+      const langCode = language === "hi" ? "hi-IN" : "en-IN";
+      const confirmation = language === "hi"
+        ? `${selectedDoctor} के साथ ${patientName} की अपॉइंटमेंट ${selectedDateTime.toLocaleString()} पर बुक हो गई है।`
+        : `Appointment booked for ${patientName} with ${selectedDoctor} on ${selectedDateTime.toLocaleString()}.`;
+      appointmentDetailsDiv.innerHTML += `<p>${confirmation}</p>`;
+      datetimePicker.style.display = "none";
+      currentStep = "language";
+      const finalMessage = language === "hi"
+        ? "अपॉइंटमेंट सफलतापूर्वक बुक हो गया है!"
+        : "Appointment booked successfully!";
+      updateOutput(finalMessage, langCode);
+    });
+
+    function resetBot() {
+      currentStep = "language";
+      language = "";
+      selectedDepartment = "";
+      selectedDoctor = "";
+      patientName = "";
+      selectedDateTime = "";
+      datetimePicker.style.display = "none";
+      outputDiv.textContent = "Click 'Start' and say 'Hindi' or 'English' to begin.";
+      appointmentDetailsDiv.innerHTML = "";
+    }
+
+    function processInput(input) {
+      const langCode = language === "hi" ? "hi-IN" : "en-IN";
+      let response = "";
+
+      switch (currentStep) {
+        case "language":
+          if (input.includes("hindi") || input.includes("हिंदी") || input.includes("हिन्दी")) {
+            language = "hi";
+            if (recognition) recognition.lang = "hi-IN";
+            currentStep = "department";
+            response = "कृपया विभाग बोलें: कार्डियोलॉजी, न्यूरोलॉजी, ऑर्थोपेडिक्स";
+            updateOutput(response, "hi-IN", true);
+          } else if (input.includes("english") || input.includes("इंग्लिश")) {
+            language = "en";
+            if (recognition) recognition.lang = "en-IN";
+            currentStep = "department";
+            response = "Please say a department: Cardiology, Neurology, Orthopedics.";
+            updateOutput(response, "en-IN", true);
+          } else {
+            response = "Say 'Hindi' or 'English' to begin.";
+            updateOutput(response, "en-IN", true);
+          }
+          break;
+
+        case "department":
+          const foundDept = departments.find(dep =>
+            input.includes(dep.en.toLowerCase()) || input.includes(dep.hi)
+          );
+          if (!foundDept) {
+            response = language === "hi"
+              ? "विभाग नहीं मिला। कृपया फिर से प्रयास करें।"
+              : "Department not found. Please try again.";
+            updateOutput(response, langCode, true);
+          } else {
+            selectedDepartment = foundDept.en;
+            currentStep = "doctor";
+            const docList = doctors[selectedDepartment].map(doc => doc[language]).join(", ");
+            response = language === "hi"
+              ? `उपलब्ध डॉक्टर: ${docList}. कृपया डॉक्टर का नाम बोलें।`
+              : `Available doctors: ${docList}. Please say a doctor's name.`;
+            updateOutput(response, langCode, true);
+          }
+          break;
+
+        case "doctor":
+          const docMatch = doctors[selectedDepartment].find(doc =>
+            input.includes(doc.en.toLowerCase().split(" ")[1]) || input.includes(doc.hi.split(" ")[1])
+          );
+          if (!docMatch) {
+            response = language === "hi"
+              ? "डॉक्टर नहीं मिला। कृपया फिर से प्रयास करें।"
+              : "Doctor not found. Please try again.";
+            updateOutput(response, langCode, true);
+          } else {
+            selectedDoctor = docMatch[language];
+            currentStep = "name";
+            response = language === "hi"
+              ? "कृपया अपना नाम बताएं।"
+              : "Please say your name.";
+            updateOutput(response, langCode, true);
+          }
+          break;
+
+        case "name":
+          patientName = input;
+          currentStep = "date";
+          datetimePicker.style.display = "block";
+          response = language === "hi"
+            ? "अपॉइंटमेंट की तारीख और समय चुनें।"
+            : "Please select a date and time for the appointment.";
+          updateOutput(response, langCode);
+          break;
+      }
+    }
+
+    // Set minimum date for datetime picker
+    document.addEventListener("DOMContentLoaded", () => {
+      const now = new Date();
+      const minDate = now.toISOString().slice(0, 16);
+      datetimePicker.setAttribute("min", minDate);
+    });
+
+    // Request mic permission
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(() => {
+        console.log("Mic permission granted.");
+      })
+      .catch((err) => {
+        console.error("Mic permission error:", err);
+        updateOutput("Microphone access denied. Please allow microphone access in your browser settings and reload the page.", "en-IN");
+      });
+
+    // Initialize speech synthesis
+    window.speechSynthesis.onvoiceschanged = () => {
+      const voices = synth.getVoices();
+      if (voices.length === 0) {
+        updateOutput("No voices available for text-to-speech. Please ensure your device supports speech synthesis.", "en-IN");
+      } else {
+        const dummyUtterance = new SpeechSynthesisUtterance("");
+        synth.speak(dummyUtterance);
+        synth.cancel();
+        updateOutput("Click 'Start' and say 'Hindi' or 'English' to begin.", "en-IN");
+      }
+    };
+  </script>
+</body>
+</html>
